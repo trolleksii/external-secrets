@@ -60,6 +60,14 @@ var (
 	ACRAccessTokenGroupVersionKind = SchemeGroupVersion.WithKind(ACRAccessTokenKind)
 )
 
+// GHCRAccessToken type metadata.
+var (
+	GHCRAccessTokenKind             = reflect.TypeOf(GHCRAccessToken{}).Name()
+	GHCRAccessTokenGroupKind        = schema.GroupKind{Group: Group, Kind: GHCRAccessTokenKind}.String()
+	GHCRAccessTokenKindAPIVersion   = GHCRAccessTokenKind + "." + SchemeGroupVersion.String()
+	GHCRAccessTokenGroupVersionKind = SchemeGroupVersion.WithKind(GHCRAccessTokenKind)
+)
+
 // Password type metadata.
 var (
 	PasswordKind             = reflect.TypeOf(Password{}).Name()

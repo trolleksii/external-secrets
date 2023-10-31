@@ -1,0 +1,13 @@
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: GHCRAccessToken
+metadata:
+  name: ghcr-gen
+spec:
+  # github app ID
+  appID: "12345"
+  # github app installation ID
+  installationID: "1234567"
+  # reference to the secret with a github app private key
+  privateKeySecretRef:
+    name: "github-app-secret"
+    key: "private-key"

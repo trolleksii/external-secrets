@@ -1,0 +1,15 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: "ghcr-token"
+spec:
+  # refresh interval must be less than 10min (mas allowed github token expiry)
+  refreshInterval: "9m"
+  target:
+    name: ghcr-token
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: GHCRAccessToken
+          name: "ghcr-gen"
