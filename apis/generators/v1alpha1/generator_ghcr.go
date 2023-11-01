@@ -21,9 +21,9 @@ import (
 
 type GHCRAccessTokenSpec struct {
 	// Github App ID
-	AppID string `json:"appID"`
+	AppID int `json:"appID"`
 	// Github App Installation ID.
-	InstallationID string `json:"installationID"`
+	InstallationID int `json:"installationID"`
 	// Secret referencet to the Github App private key
 	PrivateKeySecretRef esmeta.SecretKeySelector `json:"privateKeySecretRef"`
 }

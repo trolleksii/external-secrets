@@ -96,6 +96,7 @@ require (
 	github.com/alibabacloud-go/endpoint-util v1.1.1 // indirect
 	github.com/alibabacloud-go/tea-utils v1.4.5 // indirect
 	github.com/alibabacloud-go/tea-xml v1.1.3 // indirect
+	github.com/beatlabs/github-auth v0.0.0-20231018214958-b1420bd0d340 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
 	github.com/clbanning/mxj/v2 v2.7.0 // indirect
 	github.com/containerd/containerd v1.7.2 // indirect

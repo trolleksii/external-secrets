@@ -7908,10 +7908,10 @@ spec:
               properties:
                 appID:
                   description: Github App ID
-                  type: string
+                  type: integer
                 installationID:
                   description: Github App Installation ID.
-                  type: string
+                  type: integer
                 privateKeySecretRef:
                   description: Secret referencet to the Github App private key
                   properties:
