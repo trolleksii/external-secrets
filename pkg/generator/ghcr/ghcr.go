@@ -43,12 +43,13 @@ const (
 	errParseSpec    = "unable to parse spec: %w"
 	errParseSecret  = "key %s not found in secret %s"
 	errSecretNotSet = "unable to get private key: secret name or key not set"
-	errGetToken     = "unable to get authorization token: %w"
+	errGetToken     = "unable to get authorization token: %s"
 )
 
 type installationAccessToken struct {
-	Token  string `json:"token"`
-	Expiry string `json:"expires_at"`
+	Token   string `json:"token"`
+	Expiry  string `json:"expires_at"`
+	Message string `json:"message,omitempty"`
 }
 
 func (g *Generator) Generate(ctx context.Context, jsonSpec *apiextensions.JSON, kube client.Client, namespace string) (map[string][]byte, error) {
@@ -113,7 +114,11 @@ func fetchInstallationAccessToken(apiURL string, installationID int, jwt string)
 		url = fmt.Sprintf("%s/", apiURL)
 	}
 	client := &http.Client{}
-	req, _ := http.NewRequest("POST", fmt.Sprintf("%sapp/installations/%d/access_tokens", url, installationID), nil)
+	req, _ := http.NewRequest(
+		"POST",
+		fmt.Sprintf("%sapp/installations/%d/access_tokens", url, installationID),
+		strings.NewReader(`{"permissions":{"packages":"read"}}`),
+	)
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", jwt))
 	req.Header.Add("Accept", "application/vnd.github+json")
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
@@ -133,6 +138,11 @@ func fetchInstallationAccessToken(apiURL string, installationID int, jwt string)
 	if err := json.Unmarshal(bodyBytes, token); err != nil {
 		return nil, err
 	}
+
+	if resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf(errGetToken, token.Message)
+	}
+
 	return token, nil
 }
 
