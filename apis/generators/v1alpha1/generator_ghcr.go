@@ -22,10 +22,18 @@ import (
 type GHCRAccessTokenSpec struct {
 	// Github App ID
 	AppID int `json:"appID"`
+	// Github API URL.
+	// Defaults to https://api.github.com/
+	// +kubebuilder:default="https://api.github.com/"
+	GithubAPIURL string `json:"githubURL"`
 	// Github App Installation ID.
 	InstallationID int `json:"installationID"`
 	// Secret referencet to the Github App private key
 	PrivateKeySecretRef esmeta.SecretKeySelector `json:"privateKeySecretRef"`
+	// TokenLifetime is the lifetime of the generated token.
+	// Defaults to 10m. This is the maximum token lifetime allowed by Github.
+	// +kubebuilder:default="10m"
+	TokenLifetime metav1.Duration `json:"tokenLifetime"`
 }
 
 // +kubebuilder:object:root=true

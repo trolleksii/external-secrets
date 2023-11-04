@@ -16,19 +16,27 @@ package ghcr
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"reflect"
 	"testing"
 
+	v1 "k8s.io/api/core/v1"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestGenerate(t *testing.T) {
 	type args struct {
-		ctx       context.Context
-		jsonSpec  *apiextensions.JSON
-		kube      client.Client
-		namespace string
+		ctx              context.Context
+		jsonSpec         *apiextensions.JSON
+		kube             client.Client
+		namespace        string
+		fakeTokenFetcher accessTokenFetcher
 	}
 	tests := []struct {
 		name    string
@@ -56,8 +64,41 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "spec with values produces valus",
 			args: args{
+				namespace: "foobar",
+				kube: clientfake.NewClientBuilder().WithObjects(&v1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "example",
+						Namespace: "foobar",
+					},
+					Data: map[string][]byte{
+						"key.pem": func() []byte {
+							key, _ := rsa.GenerateKey(rand.Reader, 2048)
+							return pem.EncodeToMemory(
+								&pem.Block{
+									Type:  "RSA PRIVATE KEY",
+									Bytes: x509.MarshalPKCS1PrivateKey(key),
+								},
+							)
+						}(),
+					},
+				}).Build(),
 				jsonSpec: &apiextensions.JSON{
-					Raw: []byte(`{"spec":{"appID":"12345","installationID":"12345789","privateKeySecretRef":{"name":"github-app-key","key":"private-key"}}`),
+					Raw: []byte(`apiVersion: generators.external-secrets.io/v1alpha1
+kind: GHCRAccessToken
+spec:
+  appID: 12345
+  installationID: 1234567
+  privateKeySecretRef:
+    secretAccessKeySecretRef:
+      name: "example"
+      key: "key.pem"
+`),
+				},
+				fakeTokenFetcher: func(_ string, _ int, _ string) (*installationAccessToken, error) {
+					return &installationAccessToken{
+						Token:  "token",
+						Expiry: "somedate",
+					}, nil
 				},
 			},
 			want: map[string][]byte{
@@ -71,7 +112,13 @@ func TestGenerate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := &Generator{}
-			got, err := g.Generate(tt.args.ctx, tt.args.jsonSpec, tt.args.kube, tt.args.namespace)
+			got, err := g.generate(
+				tt.args.ctx,
+				tt.args.jsonSpec,
+				tt.args.kube,
+				tt.args.namespace,
+				tt.args.fakeTokenFetcher,
+			)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Generator.Generate() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -23,11 +23,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	corev1 "k8s.io/api/core/v1"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -37,10 +39,11 @@ import (
 type Generator struct{}
 
 const (
-	errNoSpec      = "no config spec provided"
-	errParseSpec   = "unable to parse spec: %w"
-	errParseSecret = "key %s not found in secret %s"
-	errGetToken    = "unable to get authorization token: %w"
+	errNoSpec       = "no config spec provided"
+	errParseSpec    = "unable to parse spec: %w"
+	errParseSecret  = "key %s not found in secret %s"
+	errSecretNotSet = "unable to get private key: secret name or key not set"
+	errGetToken     = "unable to get authorization token: %w"
 )
 
 type installationAccessToken struct {
@@ -49,6 +52,10 @@ type installationAccessToken struct {
 }
 
 func (g *Generator) Generate(ctx context.Context, jsonSpec *apiextensions.JSON, kube client.Client, namespace string) (map[string][]byte, error) {
+	return g.generate(ctx, jsonSpec, kube, namespace, fetchInstallationAccessToken)
+}
+
+func (g *Generator) generate(ctx context.Context, jsonSpec *apiextensions.JSON, kube client.Client, namespace string, tokenFetcher accessTokenFetcher) (map[string][]byte, error) {
 	if jsonSpec == nil {
 		return nil, fmt.Errorf(errNoSpec)
 	}
@@ -57,11 +64,17 @@ func (g *Generator) Generate(ctx context.Context, jsonSpec *apiextensions.JSON, 
 		return nil, fmt.Errorf(errParseSpec, err)
 	}
 
+	if res.Spec.PrivateKeySecretRef.Name == "" || res.Spec.PrivateKeySecretRef.Key == "" {
+		return nil, fmt.Errorf(errSecretNotSet)
+	}
+
 	secret := &corev1.Secret{}
+
 	objectKey := client.ObjectKey{
 		Namespace: namespace,
 		Name:      res.Spec.PrivateKeySecretRef.Name,
 	}
+
 	if err := kube.Get(ctx, objectKey, secret); err != nil {
 		return nil, err
 	}
@@ -76,16 +89,15 @@ func (g *Generator) Generate(ctx context.Context, jsonSpec *apiextensions.JSON, 
 		return nil, err
 	}
 
-	newAppToken, err := newAppToken(res.Spec.AppID, rsaKey)
+	appToken, err := newGithubAppToken(res.Spec.AppID, res.Spec.TokenLifetime, rsaKey)
 	if err != nil {
 		return nil, err
 	}
 
-	accessToken, err := fetchInstallationAccessToken(res.Spec.InstallationID, newAppToken)
+	accessToken, err := tokenFetcher(res.Spec.GithubAPIURL, res.Spec.InstallationID, appToken)
 	if err != nil {
 		return nil, err
 	}
-
 	return map[string][]byte{
 		"username": []byte("x-access-token"),
 		"password": []byte(accessToken.Token),
@@ -93,22 +105,15 @@ func (g *Generator) Generate(ctx context.Context, jsonSpec *apiextensions.JSON, 
 	}, nil
 }
 
-// newAppToken creates a new JWT token for the GitHub App using the App ID and
-// the private key in the PKCS#1 RSAPrivateKey format.
-func newAppToken(appID int, privateKey *rsa.PrivateKey) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"iss": appID,
-		"iat": time.Now().Unix(),
-		"exp": time.Now().Add(time.Minute * 10).Unix(),
-	})
-	return token.SignedString(privateKey)
-}
+type accessTokenFetcher func(apiURL string, installationID int, jwt string) (*installationAccessToken, error)
 
-// fetchInstallationAccessToken authenticates as a Github App installation and
-// returns an access token
-func fetchInstallationAccessToken(installationID int, jwt string) (*installationAccessToken, error) {
+func fetchInstallationAccessToken(apiURL string, installationID int, jwt string) (*installationAccessToken, error) {
+	url := apiURL
+	if !strings.HasSuffix(apiURL, "/") {
+		url = fmt.Sprintf("%s/", apiURL)
+	}
 	client := &http.Client{}
-	req, _ := http.NewRequest("POST", fmt.Sprintf("https://api.github.com/app/installations/%d/access_tokens", installationID), nil)
+	req, _ := http.NewRequest("POST", fmt.Sprintf("%sapp/installations/%d/access_tokens", url, installationID), nil)
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", jwt))
 	req.Header.Add("Accept", "application/vnd.github+json")
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
@@ -131,7 +136,21 @@ func fetchInstallationAccessToken(installationID int, jwt string) (*installation
 	return token, nil
 }
 
-// parseRSAPrivateKey parses a PEM encoded PKCS#1 RSA PrivateKey.
+func newGithubAppToken(appID int, lifetime metav1.Duration, privateKey *rsa.PrivateKey) (string, error) {
+	iat := time.Now()
+	exp := iat.Add(lifetime.Duration)
+	token, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss": appID,
+		"iat": iat.Unix(),
+		"exp": exp.Unix(),
+	}).SignedString(privateKey)
+
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
 func parseRSAPrivateKey(data []byte) (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode(data)
 	if block == nil || block.Type != "RSA PRIVATE KEY" {
